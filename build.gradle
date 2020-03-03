@@ -19,10 +19,10 @@ configurations {
 
 dependencies {
     // Core dependencies
-    implementation 'com.github.seputaes:avenue:master'
-
+    implementation 'com.github.seputaes:avenue:master-SNAPSHOT'
+    
     // Build dependencies
-    sepBuildConfig 'com.github.seputaes:sep-java-build-config:0.2.0'
+    sepBuildConfig 'com.github.seputaes:sep-java-build-config:0.3.0'
 
     // Test dependencies
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.6.0'
@@ -74,10 +74,8 @@ tasks.withType(com.github.spotbugs.SpotBugsTask) {
 // configure jacoco
 jacocoTestReport {
     reports {
-        html {
-            enabled = false
-            destination = file("${buildDir}/reports/jacoco/html")
-        }
+        html.enabled = false
+        html.destination = file("${buildDir}/reports/jacoco/html")
     }
 }
 jacocoTestCoverageVerification {
