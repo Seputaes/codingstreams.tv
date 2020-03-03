@@ -18,6 +18,9 @@ configurations {
 }
 
 dependencies {
+    // Core dependencies
+    implementation 'com.github.seputaes:avenue:master'
+
     // Build dependencies
     sepBuildConfig 'com.github.seputaes:sep-java-build-config:0.2.0'
 
