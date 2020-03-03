@@ -1,15 +1,93 @@
 plugins {
     id 'java'
+
+    id 'checkstyle'
+    id 'com.github.spotbugs' version '3.0.0'
+    id 'jacoco'
 }
 
 repositories {
     jcenter()
+    maven {
+        url "https://jitpack.io"
+    }
+}
+
+configurations {
+    sepBuildConfig
 }
 
 dependencies {
+    // Build dependencies
+    sepBuildConfig 'com.github.seputaes:sep-java-build-config:0.2.0'
+
+    // Test dependencies
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.6.0'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.6.0'
 }
+
+// configure sep-java-build-config
+task extractSepConfig(type: Copy) {
+    from {
+        zipTree(configurations.sepBuildConfig.singleFile)
+    }
+    into "${buildDir}/"
+    include "configuration/"
+}
+checkstyleMain.dependsOn extractSepConfig
+checkstyleTest.dependsOn extractSepConfig
+
+// configure compiler options
+// unchecked and deprecation should produce warnings
+compileJava {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << "-Xlint:unchecked" << "-Xlint:deprecation"
+}
+compileTestJava {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << "-Xlint:unchecked" << "-Xlint:deprecation"
+}
+
+// configure checkstyle
+checkstyle {
+    ignoreFailures false
+    configFile file("${buildDir}/configuration/checkstyle/checkstyle.xml")
+    configDirectory.set(file("${buildDir}/configuration/checkstyle"))
+    toolVersion "8.30"
+}
+
+// configure spotbugs
+spotbugs {
+    ignoreFailures false
+    toolVersion "4.0.0"
+}
+tasks.withType(com.github.spotbugs.SpotBugsTask) {
+    reports {
+        html.enabled = true
+        xml.enabled = false
+    }
+}
+
+// configure jacoco
+jacocoTestReport {
+    reports {
+        html {
+            enabled = false
+            destination = file("${buildDir}/reports/jacoco/html")
+        }
+    }
+}
+jacocoTestCoverageVerification {
+    violationRules {
+        rule {
+            limit {
+                minimum = 0.0 // TODO
+            }
+        }
+    }
+}
+jacocoTestReport.dependsOn test
+check.dependsOn jacocoTestCoverageVerification
 
 test {
     useJUnitPlatform()
