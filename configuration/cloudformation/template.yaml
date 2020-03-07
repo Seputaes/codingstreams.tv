@@ -171,6 +171,9 @@ Resources:
           - !Ref PrivateSubnet3
         SecurityGroupIds:
           - !Ref WebsiteLambdaSecurityGroup
+      Environment:
+        Variables:
+          LOG_LEVEL: info
   WebsiteLambdaKeepWarmEvent:
     Type: AWS::Events::Rule
     Properties:
