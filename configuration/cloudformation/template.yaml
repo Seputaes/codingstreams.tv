@@ -4,7 +4,279 @@ Transform: AWS::Serverless-2016-10-31
 Conditions:
   Never: !Equals [true, false]
 
+Globals:
+  Api:
+    # This version is a workaround for an extra "Stage" stage being generated in the API Gateway
+    # https://github.com/awslabs/serverless-application-model/issues/191
+    OpenApiVersion: 3.0.1
+
 Resources:
-  NullResource:
-    Type: Custom::Null
-    Condition: Never
+  # VPC Stack
+  VPC:
+    Type: AWS::EC2::VPC
+    Description: CodingStreams.tv Main VPC
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+
+  InternetGateway:
+    Description: CodingStreams.tv VPC IGW connecting to the internet.
+    Type: AWS::EC2::InternetGateway
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  # Subnets
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.0.0/24"
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.1.0/24"
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 2
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.2.0/24"
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.100.0/24"
+
+  # Route Tables
+  PrivateSubnetsRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateSubnetsRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateSubnetsRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  PrivateSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateSubnetsRouteTable
+      SubnetId: !Ref PrivateSubnet3
+
+  PublicSubnetsRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicSubnetsRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  # Subnet Routes
+  # TODO: We'll need a NAT Gateway if our Lambdas ever need to call out to the internet.
+  # Setup that route here to link to the private subnets
+  PublicSubnetsInternetGatewayRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicSubnetsRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  # Website Lambda
+  WebsiteLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      Policies:
+        - PolicyName: CreateCloudWatchLogs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Effect: Allow
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+        - PolicyName: LambdaVPCPermissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                Effect: Allow
+                Resource: "*"
+
+  WebsiteLambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allows VPC outbound access to the VPC
+      SecurityGroupEgress:
+        IpProtocol: tcp
+        CidrIp: 10.0.0.0/16
+        FromPort: 0
+        ToPort: 65535
+      VpcId: !Ref VPC
+
+  WebsiteLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: java11
+      MemorySize: 256
+      Role: !GetAtt WebsiteLambdaRole.Arn
+      Handler: gg.sep.codingstreams.lambda.WebsiteLambdaHandler
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+          - !Ref PrivateSubnet3
+        SecurityGroupIds:
+          - !Ref WebsiteLambdaSecurityGroup
+  WebsiteLambdaKeepWarmEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: CloudWatch event to keep the Website Lambda warm
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt WebsiteLambda.Arn
+          Id: CodingStreamsWebsiteLambdaKeepWarmEvent
+          Input: '{"httpMethod":"HEAD","path":"/keepwarm"}'
+  WebsiteLambdaKeepWarmInvokePermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref WebsiteLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt WebsiteLambdaKeepWarmEvent.Arn
+
+  # API Gateway
+  ApiGatewayCloudWatchLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Allows access to CloudWatch Logs from API Gateway
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - "sts:AssumeRole"
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "apigateway.amazonaws.com"
+        Version: '2012-10-17'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+
+  ApiGatewayAccountApplyCloudWatchLogsRole:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !GetAtt ApiGatewayCloudWatchLogsRole.Arn
+
+  WebsiteApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Description: Handles receiving website requests and routing them to the Website Lambda.
+      Name: !Join [ "-", [ !Ref AWS::StackName, !Ref AWS::StackId ] ]
+
+  WebsiteProxyResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt WebsiteApi.RootResourceId
+      PathPart: "{proxy+}"
+      RestApiId: !Ref WebsiteApi
+
+  WebsiteRootMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref WebsiteApi
+      ResourceId: !GetAtt WebsiteApi.RootResourceId
+      AuthorizationType: NONE
+      HttpMethod: ANY
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebsiteLambda.Arn}/invocations"
+
+  WebsiteProxyMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref WebsiteApi
+      ResourceId: !Ref WebsiteProxyResource
+      AuthorizationType: NONE
+      HttpMethod: ANY
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebsiteLambda.Arn}/invocations"
+
+  WebsiteApiStage:
+    Type: AWS::ApiGateway::Stage
+    DependsOn: ApiGatewayAccountApplyCloudWatchLogsRole
+    Properties:
+      Description: The main live API Gateway stage for the website.
+      StageName: live
+      MethodSettings:
+        - HttpMethod: '*'
+          MetricsEnabled: true
+          ResourcePath: "/*"
+          LoggingLevel: INFO
+      RestApiId: !Ref WebsiteApi
+      DeploymentId: !Ref WebsiteApiDeployment
+
+  WebsiteApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - WebsiteRootMethod
+      - WebsiteProxyMethod
+    Properties:
+      Description: Triggers a deployment to the live stage.
+      RestApiId: !Ref WebsiteApi
+
+  WebsiteApiInvokePermissions:
+    Type: AWS::Lambda::Permission
+    DependsOn: WebsiteApi
+    Properties:
+      FunctionName: !Ref WebsiteLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebsiteApi}/*/*/*"

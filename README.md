@@ -25,4 +25,22 @@ If you notice some data is inaccurate in this repository, feel free to open a PR
 
 ## Contributing
 
-Pull requests are welcome!
+Pull requests are always welcome! It is recommended that an issue be opened first describing the 
+bugfix/improvement/feature to ensure a smooth pull request process.
+
+### Local Development
+
+**codingstreams.tv** is build as a Java application running on *AWS Lambda*, accessed through
+API Gateway. The easiest way to get started working with the application locally is to use 
+the [AWS SAM](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/what-is-sam.html) framework.
+
+Once installed, you can spin up the stack locally using:
+
+```bash
+sam build --template-file configuration/cloudformation/template.yml --base-dir .
+sam local start-api
+```
+
+You can then browse to [http://localhost:3000](http://localhost:3000) in your browser to view the application.
+Any changes you make and be re-built with the `sam build` command above, and the changes will be reflected
+automatically on the next page load.

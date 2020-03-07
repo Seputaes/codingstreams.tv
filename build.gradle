@@ -13,32 +13,14 @@ repositories {
     }
 }
 
-configurations {
-    sepBuildConfig
-}
-
 dependencies {
     // Core dependencies
     implementation 'com.github.seputaes:avenue:master-SNAPSHOT'
-    
-    // Build dependencies
-    sepBuildConfig 'com.github.seputaes:sep-java-build-config:0.3.0'
 
     // Test dependencies
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.6.0'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.6.0'
 }
-
-// configure sep-java-build-config
-task extractSepConfig(type: Copy) {
-    from {
-        zipTree(configurations.sepBuildConfig.singleFile)
-    }
-    into "${buildDir}/"
-    include "configuration/"
-}
-checkstyleMain.dependsOn extractSepConfig
-checkstyleTest.dependsOn extractSepConfig
 
 // configure compiler options
 // unchecked and deprecation should produce warnings
@@ -54,8 +36,8 @@ compileTestJava {
 // configure checkstyle
 checkstyle {
     ignoreFailures false
-    configFile file("${buildDir}/configuration/checkstyle/checkstyle.xml")
-    configDirectory.set(file("${buildDir}/configuration/checkstyle"))
+    configFile file("${projectDir}/configuration/checkstyle/checkstyle.xml")
+    configDirectory.set(file("${projectDir}/configuration/checkstyle"))
     toolVersion "8.30"
 }
 
