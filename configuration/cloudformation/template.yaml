@@ -10,6 +10,18 @@ Globals:
     # https://github.com/awslabs/serverless-application-model/issues/191
     OpenApiVersion: 3.0.1
 
+Parameters:
+  WebsiteDomain:
+    Type: String
+    # TODO: Remove this default? Maybe?
+    Default: "codingstreams.tv"
+    Description: Domain name for the codingstreams.tv website
+  WebsiteStaticDomain:
+    Type: String
+    # TODO: Remove this default? Maybe?
+    Default: "static.codingstreams.tv"
+    Description: Domain name for the codingstreams.tv static assets CloudFront distribution
+
 Resources:
   # VPC Stack
   VPC:
@@ -283,3 +295,126 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebsiteApi}/*/*/*"
+
+
+  # Domain Configuration
+  # Route53
+  WebsiteDomainHostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref WebsiteDomain
+
+  # Certificate
+  WebsiteDomainCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Join [".", [ "*", !Ref WebsiteDomain ] ]
+      SubjectAlternativeNames:
+        - !Ref WebsiteDomain
+      ValidationMethod: DNS
+
+  WebsiteApiDomain:
+    Type: AWS::ApiGateway::DomainName
+    Properties:
+      DomainName: !Ref WebsiteDomain
+      CertificateArn: !Ref WebsiteDomainCertificate
+
+  WebsiteApiDomainMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    Properties:
+      DomainName: !Ref WebsiteApiDomain
+      RestApiId: !Ref WebsiteApi
+      Stage: !Ref WebsiteApiStage
+
+  # Finally, point the DNS for the domain to the API Gateway Cloudfront Distribution
+  WebsiteApiDomainAlias:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref WebsiteDomainHostedZone
+      Type: A
+      Name: !Ref WebsiteApiDomain
+      AliasTarget:
+        HostedZoneId: Z2FDTNDATAQYW2 # (cloudfront always has the same ID)
+        DNSName: !GetAtt WebsiteApiDomain.DistributionDomainName
+
+  # CloudFront/Static Assets
+  WebsiteStaticAssetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods:
+              - GET
+              - HEAD
+            AllowedOrigins:
+              - !Join [".", [ "*", !Ref WebsiteApiDomain ] ]
+  WebsiteStaticAssetsOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: "Allows access to the Website Static Assets S3 origin from Cloudfront"
+  WebsiteStaticAssetsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteStaticAssetsBucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:GetObject'
+            Effect: 'Allow'
+            Principal:
+              CanonicalUser: !GetAtt WebsiteStaticAssetsOriginAccessIdentity.S3CanonicalUserId
+            Resource:
+              - !Sub 'arn:aws:s3:::${WebsiteStaticAssetsBucket}/*'
+  WebsiteStaticAssetsDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref WebsiteStaticDomain
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - HEAD
+            - GET
+          CachedMethods:
+            - HEAD
+            - GET
+          Compress: true
+          DefaultTTL: 86400
+          ForwardedValues:
+            Cookies:
+              Forward: none
+            Headers:
+              - Origin
+              - Access-Control-Request-Headers
+              - Access-Control-Request-Method
+            QueryString: false
+          MaxTTL: 31536000
+          MinTTL: 86400
+          TargetOriginId: !Sub 's3-origin-${WebsiteStaticAssetsBucket}'
+          ViewerProtocolPolicy: 'redirect-to-https'
+        DefaultRootObject: 'index.html'
+        Enabled: true
+        HttpVersion: 'http1.1'
+        IPV6Enabled: false
+        Origins:
+          - DomainName: !GetAtt WebsiteStaticAssetsBucket.DomainName
+            Id: !Sub 's3-origin-${WebsiteStaticAssetsBucket}'
+            OriginPath: ''
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${WebsiteStaticAssetsOriginAccessIdentity}'
+        PriceClass: 'PriceClass_All'
+        ViewerCertificate:
+          AcmCertificateArn: !Ref WebsiteDomainCertificate
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2018
+  # Finally, create an ALIAS pointing to our cloudfront distribution
+  WebsiteStaticAssetsDomainAlias:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref WebsiteDomainHostedZone
+      Type: A
+      Name: !Ref WebsiteStaticDomain
+      AliasTarget:
+        HostedZoneId: Z2FDTNDATAQYW2 # (cloudfront always has the same ID)
+        DNSName: !GetAtt WebsiteStaticAssetsDistribution.DomainName
