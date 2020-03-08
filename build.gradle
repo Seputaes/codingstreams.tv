@@ -18,6 +18,8 @@ dependencies {
     implementation 'org.apache.logging.log4j:log4j-api:2.13.+'
     implementation 'org.apache.logging.log4j:log4j-core:2.13.+'
     implementation 'com.github.seputaes:avenue:master-SNAPSHOT'
+    // Templating
+    implementation 'io.pebbletemplates:pebble:3.1.+'
 
     // Runtime dependencies
     runtime 'com.amazonaws:aws-lambda-java-log4j2:1.0.0'

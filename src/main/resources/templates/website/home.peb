@@ -1,0 +1,4 @@
+{% extends './include/base.peb' %}
+{% block pageContent %}
+Hello World!
+{% endblock %}

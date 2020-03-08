@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    {% set _title = block('title') %}
+    <title>{% if _title is not empty %}{{ _title }} - {% endif %}CodingStreams.tv</title>
+
+    {% block stylesheets %}{% endblock %}
+    {% block javascript %}{% endblock %}
+  </head>
+  <body>
+  {% block pageContent %}{% endblock %}
+  </body>
+</html>
